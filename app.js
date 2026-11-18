@@ -1,0 +1,754 @@
+/* VoixOff Studio — montage vidéo + voix off TTS, 100% navigateur */
+"use strict";
+
+/* ---------- État global ---------- */
+
+const state = {
+  media: [],        // {id, name, type:'image'|'video', url, el, duration, thumbURL}
+  audios: [],       // {id, name, buffer}
+  scenes: [],       // {id, mediaId, text, durationMs, voiceURI, rate, pitch}
+  selectedSceneId: null,
+  playing: false,
+  playStartTs: 0,
+  currentSceneId: null,
+  exportAbort: false,
+};
+
+let uid = 0;
+const nextId = (p) => `${p}_${++uid}`;
+
+const $ = (sel) => document.querySelector(sel);
+const canvas = $("#stage");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width, H = canvas.height;
+const MIN_SCENE_MS = 1500;
+const FADE_MS = 350;
+
+/* ---------- Utilitaires ---------- */
+
+function toast(msg, isError = false) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.toggle("error", isError);
+  el.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add("hidden"), 3500);
+}
+
+function fmtTime(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function estSpeechMs(text, rate) {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const ms = (words / 150) * 60000 / (rate || 1);
+  return Math.max(MIN_SCENE_MS, Math.round(ms + 800));
+}
+
+function totalDurationMs() {
+  return state.scenes.reduce((sum, s) => sum + s.durationMs, 0);
+}
+
+function getSceneById(id) {
+  return state.scenes.find((s) => s.id === id) || null;
+}
+
+function selectedScene() {
+  return getSceneById(state.selectedSceneId);
+}
+
+function loadEl(url, type) {
+  return new Promise((resolve, reject) => {
+    if (type === "image") {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    } else {
+      const v = document.createElement("video");
+      v.preload = "auto";
+      v.muted = true;
+      v.src = url;
+      v.onloadeddata = () => resolve(v);
+      v.onerror = reject;
+    }
+  });
+}
+
+/* ---------- Médias ---------- */
+
+$("#fileMedia").addEventListener("change", async (e) => {
+  for (const file of e.target.files) {
+    const type = file.type.startsWith("video") ? "video" : "image";
+    const url = URL.createObjectURL(file);
+    try {
+      const el = await loadEl(url, type);
+      state.media.push({
+        id: nextId("med"),
+        name: file.name,
+        type,
+        url,
+        el,
+        duration: type === "video" ? el.duration * 1000 : 0,
+      });
+    } catch {
+      toast(`Impossible de charger « ${file.name} »`, true);
+    }
+  }
+  e.target.value = "";
+  renderMediaList();
+});
+
+function renderMediaList() {
+  const list = $("#mediaList");
+  list.innerHTML = "";
+  state.media.forEach((m) => {
+    const div = document.createElement("div");
+    div.className = "media-item";
+    div.title = m.name;
+    if (m.type === "image") {
+      const img = new Image();
+      img.src = m.url;
+      div.appendChild(img);
+    } else {
+      const v = document.createElement("video");
+      v.src = m.url;
+      v.muted = true;
+      div.appendChild(v);
+    }
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = m.name;
+    div.appendChild(name);
+    div.onclick = () => {
+      const sc = selectedScene();
+      if (sc) { sc.mediaId = m.id; renderTimeline(); }
+      else toast("Sélectionnez d'abord une scène pour lui assigner ce média.");
+    };
+    list.appendChild(div);
+  });
+}
+
+/* ---------- Script -> scènes ---------- */
+
+$("#scriptInput").addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    generateScenes();
+  }
+});
+
+$("#btnGenerate").addEventListener("click", generateScenes);
+
+function generateScenes() {
+  const raw = $("#scriptInput").value.trim();
+  if (!raw) { toast("Écrivez d'abord votre script.", true); return; }
+
+  const blocks = raw
+    .split(/\n\s*\n|\n/)
+    .map((b) => b.trim())
+    .filter(Boolean);
+  if (!blocks.length) return;
+
+  const voice = $("#voiceSelect").value || null;
+  const rate = parseFloat($("#rateRange").value);
+  const pitch = parseFloat($("#pitchRange").value);
+
+  state.scenes = blocks.map((text, i) => ({
+    id: nextId("scn"),
+    mediaId: state.media.length ? state.media[i % state.media.length].id : null,
+    text,
+    durationMs: estSpeechMs(text, rate),
+    voiceURI: voice,
+    rate,
+    pitch,
+  }));
+  state.selectedSceneId = state.scenes[0].id;
+  renderMediaList();
+  renderTimeline();
+  renderSceneProps();
+  toast(`${state.scenes.length} scène(s) générée(s) depuis le script.`);
+}
+
+/* ---------- Timeline ---------- */
+
+function renderTimeline() {
+  const tl = $("#timeline");
+  tl.innerHTML = "";
+
+  if (!state.scenes.length) {
+    tl.innerHTML = `<div class="empty-timeline">Aucune scène.<br>Importez des médias puis générez les scènes depuis votre script (étapes 1 et 2).</div>`;
+    return;
+  }
+
+  state.scenes.forEach((sc, i) => {
+    const media = state.media.find((m) => m.id === sc.mediaId);
+    const card = document.createElement("div");
+    card.className = "scene-card" + (sc.id === state.selectedSceneId ? " active" : "");
+
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    if (media) {
+      thumb.style.backgroundImage = `url("${media.url}")`;
+    } else {
+      thumb.textContent = "🎞";
+    }
+    card.appendChild(thumb);
+
+    const text = document.createElement("div");
+    text.className = "text";
+    text.textContent = sc.text;
+    card.appendChild(text);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const dur = document.createElement("span");
+    dur.textContent = `${i + 1} · ${fmtTime(sc.durationMs)}`;
+    meta.appendChild(dur);
+
+    const tools = document.createElement("div");
+    tools.className = "tools";
+    const upBtn = mkBtn("↑", () => moveScene(i, -1));
+    const downBtn = mkBtn("↓", () => moveScene(i, 1));
+    const dupBtn = mkBtn("⧉", () => duplicateScene(i));
+    const delBtn = mkBtn("✕", () => deleteScene(sc.id));
+    delBtn.classList.add("danger");
+    tools.append(upBtn, downBtn, dupBtn, delBtn);
+    meta.appendChild(tools);
+    card.appendChild(meta);
+
+    card.onclick = (e) => {
+      if (e.target.closest("button")) return;
+      stopPlayback();
+      state.selectedSceneId = sc.id;
+      renderTimeline();
+      renderSceneProps();
+      previewCurrentSceneFrame();
+    };
+    tl.appendChild(card);
+  });
+}
+
+function mkBtn(label, onClick, title = "") {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.title = title;
+  b.onclick = (e) => { e.stopPropagation(); onClick(); };
+  return b;
+}
+
+function moveScene(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= state.scenes.length) return;
+  [state.scenes[i], state.scenes[j]] = [state.scenes[j], state.scenes[i]];
+  renderTimeline();
+}
+
+function duplicateScene(i) {
+  const src = state.scenes[i];
+  state.scenes.splice(i + 1, 0, { ...src, id: nextId("scn") });
+  renderTimeline();
+}
+
+function deleteScene(id) {
+  const i = state.scenes.findIndex((s) => s.id === id);
+  if (i === -1) return;
+  state.scenes.splice(i, 1);
+  if (state.selectedSceneId === id) state.selectedSceneId = state.scenes[0]?.id || null;
+  renderTimeline();
+  renderSceneProps();
+}
+
+/* ---------- Propriétés de scène ---------- */
+
+function renderSceneProps() {
+  const box = $("#sceneProps");
+  box.innerHTML = "";
+  const sc = selectedScene();
+  if (!sc) {
+    box.innerHTML = `<p class="hint">Sélectionnez une scène dans la timeline.</p>`;
+    return;
+  }
+
+  const textGroup = document.createElement("div");
+  textGroup.className = "prop-group";
+  const textLabel = document.createElement("label");
+  textLabel.textContent = "Texte de la voix off";
+  const textarea = document.createElement("textarea");
+  textarea.rows = 4;
+  textarea.value = sc.text;
+  textarea.oninput = () => { sc.text = textarea.value; refreshSceneCardText(); };
+  textLabel.appendChild(textarea);
+  textGroup.appendChild(textLabel);
+  box.appendChild(textGroup);
+
+  const medium = state.media.find((m) => m.id === sc.mediaId);
+  const selLabel = document.createElement("label");
+  selLabel.textContent = "Média";
+  const sel = document.createElement("select");
+  const optNone = document.createElement("option");
+  optNone.value = "";
+  optNone.textContent = "— Écran noir —";
+  sel.appendChild(optNone);
+  state.media.forEach((m) => {
+    const o = document.createElement("option");
+    o.value = m.id;
+    o.textContent = m.name;
+    if (m.id === sc.mediaId) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => {
+    sc.mediaId = sel.value || null;
+    renderTimeline();
+    previewCurrentSceneFrame();
+  };
+  selLabel.appendChild(sel);
+  textGroup.appendChild(selLabel);
+  box.appendChild(selLabel);
+  void medium;
+
+  const durLabel = document.createElement("label");
+  durLabel.textContent = `Durée : ${fmtTime(sc.durationMs)}`;
+  const dur = document.createElement("input");
+  dur.type = "range";
+  dur.min = MIN_SCENE_MS;
+  dur.max = 30000;
+  dur.step = 250;
+  dur.value = sc.durationMs;
+  dur.oninput = () => {
+    sc.durationMs = parseInt(dur.value, 10);
+    durLabel.firstChild.textContent = `Durée : ${fmtTime(sc.durationMs)} `;
+  };
+  durLabel.appendChild(dur);
+  box.appendChild(durLabel);
+
+  const rateLabel = document.createElement("label");
+  rateLabel.textContent = `Vitesse voix : ${sc.rate.toFixed(1)}`;
+  const rate = document.createElement("input");
+  rate.type = "range";
+  rate.min = 0.5; rate.max = 2; rate.step = 0.1; rate.value = sc.rate;
+  rate.oninput = () => {
+    sc.rate = parseFloat(rate.value);
+    rateLabel.firstChild.textContent = `Vitesse voix : ${sc.rate.toFixed(1)} `;
+  };
+  rateLabel.appendChild(rate);
+  box.appendChild(rateLabel);
+
+  const pitchLabel = document.createElement("label");
+  pitchLabel.textContent = `Tonalité : ${sc.pitch.toFixed(1)}`;
+  const pitch = document.createElement("input");
+  pitch.type = "range";
+  pitch.min = 0; pitch.max = 2; pitch.step = 0.1; pitch.value = sc.pitch;
+  pitch.oninput = () => {
+    sc.pitch = parseFloat(pitch.value);
+    pitchLabel.firstChild.textContent = `Tonalité : ${sc.pitch.toFixed(1)} `;
+  };
+  pitchLabel.appendChild(pitch);
+  box.appendChild(pitchLabel);
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "row";
+  const listen = document.createElement("button");
+  listen.textContent = "🔊 Écouter la voix";
+  listen.onclick = () => speakScene(sc);
+  const auto = document.createElement("button");
+  auto.textContent = "⏱ Durée auto";
+  auto.title = "Recalculer la durée à partir du texte";
+  auto.onclick = () => {
+    sc.durationMs = estSpeechMs(sc.text, sc.rate);
+    durLabel.firstChild.textContent = `Durée : ${fmtTime(sc.durationMs)} `;
+    dur.value = sc.durationMs;
+    renderTimeline();
+  };
+  btnRow.append(listen, auto);
+  box.appendChild(btnRow);
+}
+
+function refreshSceneCardText() {
+  renderTimeline();
+}
+
+/* ---------- Synthèse vocale ---------- */
+
+const synth = window.speechSynthesis;
+const voices = [];
+
+function loadVoices() {
+  const list = synth.getVoices();
+  if (!list.length) return false;
+  voices.length = 0;
+  voices.push(...list);
+  const select = $("#voiceSelect");
+  const prev = select.value;
+  select.innerHTML = "";
+  const sorted = [...voices].sort((a, b) => {
+    const fa = a.lang.toLowerCase().startsWith("fr") ? 0 : 1;
+    const fb = b.lang.toLowerCase().startsWith("fr") ? 0 : 1;
+    return fa - fb || a.name.localeCompare(b.name);
+  });
+  sorted.forEach((v) => {
+    const o = document.createElement("option");
+    o.value = v.voiceURI;
+    o.textContent = `${v.name} (${v.lang})`;
+    select.appendChild(o);
+  });
+  if (prev && sorted.some((v) => v.voiceURI === prev)) select.value = prev;
+  return true;
+}
+
+if ("speechSynthesis" in window) {
+  if (!loadVoices()) {
+    synth.addEventListener("voiceschanged", loadVoices);
+    let tries = 0;
+    const iv = setInterval(() => {
+      if (loadVoices() || ++tries > 20) clearInterval(iv);
+    }, 250);
+  }
+} else {
+  toast("La synthèse vocale n'est pas disponible dans ce navigateur.", true);
+}
+
+function voiceByURI(uri) {
+  return voices.find((v) => v.voiceURI === uri) || voices.find((v) => v.default) || voices[0] || null;
+}
+
+function speakScene(sc, onEnd) {
+  if (!("speechSynthesis" in window) || !sc.text.trim()) {
+    if (onEnd) setTimeout(onEnd, 100);
+    return;
+  }
+  const u = new SpeechSynthesisUtterance(sc.text);
+  const v = voiceByURI(sc.voiceURI);
+  if (v) u.voice = v;
+  u.lang = v?.lang || "fr-FR";
+  u.rate = sc.rate;
+  u.pitch = sc.pitch;
+  if (onEnd) u.onend = () => onEnd();
+  synth.speak(u);
+}
+
+$("#btnPreviewVoice").addEventListener("click", () => {
+  const sc = selectedScene();
+  if (!sc) { toast("Sélectionnez une scène.", true); return; }
+  speakScene(sc);
+});
+
+/* ---------- Rendu canvas ---------- */
+
+function drawCover(el) {
+  const ew = el.videoWidth || el.naturalWidth;
+  const eh = el.videoHeight || el.naturalHeight;
+  if (!ew || !eh) return;
+  const scale = Math.max(W / ew, H / eh);
+  const dw = ew * scale, dh = eh * scale;
+  ctx.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
+function drawTextOverlay(text) {
+  if (!text.trim()) return;
+  const fontSize = 34;
+  ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+
+  const maxW = W - 160;
+  const words = text.trim().split(/\s+/);
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  const shown = lines.slice(-4);
+
+  const pad = 14;
+  const boxH = shown.length * (fontSize + 8) + pad * 2;
+  const y0 = H - boxH - 60;
+
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  const boxW = Math.min(
+    W - 80,
+    Math.max(...shown.map((l) => ctx.measureText(l).width)) + pad * 2
+  );
+  roundRect((W - boxW) / 2, y0, boxW, boxH, 12);
+  ctx.fill();
+
+  ctx.fillStyle = "#fff";
+  shown.forEach((l, i) => {
+    const y = y0 + pad + fontSize + i * (fontSize + 8) - 6;
+    ctx.fillText(l, W / 2, y);
+  });
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+function drawSceneAt(sc, localMs) {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  const media = state.media.find((m) => m.id === sc.mediaId);
+  const progress = Math.min(1, Math.max(0, localMs / sc.durationMs));
+
+  if (media) {
+    if (media.type === "image") {
+      const el = media.el;
+      const zoom = 1 + 0.06 * progress;
+      const ew = el.naturalWidth * zoom;
+      const eh = el.naturalHeight * zoom;
+      const scale = Math.max(W / ew, H / eh);
+      const dw = ew * scale, dh = eh * scale;
+      ctx.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    } else if (media.el.readyState >= 2) {
+      drawCover(media.el);
+    }
+  }
+
+  drawTextOverlay(sc.text);
+
+  const fadeIn = Math.min(1, localMs / FADE_MS);
+  const fadeOut = Math.min(1, (sc.durationMs - localMs) / FADE_MS);
+  const alpha = 1 - Math.min(fadeIn, fadeOut);
+  if (alpha > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function previewCurrentSceneFrame() {
+  const sc = selectedScene();
+  if (state.playing) return;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  if (sc) drawSceneAt(sc, Math.min(600, sc.durationMs));
+  updatePlaytime(0);
+}
+
+/* ---------- Lecture ---------- */
+
+function sceneAtTime(ms) {
+  let acc = 0;
+  for (const sc of state.scenes) {
+    if (ms < acc + sc.durationMs) return { sc, localMs: ms - acc };
+    acc += sc.durationMs;
+  }
+  return null;
+}
+
+let rafId = null;
+let spokenScenes = new Set();
+const videoEls = new Set();
+
+function updatePlaytime(ms) {
+  $("#playTime").textContent = `${fmtTime(ms)} / ${fmtTime(totalDurationMs())}`;
+}
+
+function playbackLoop(ts) {
+  const elapsed = ts - state.playStartTs;
+  const at = sceneAtTime(elapsed);
+
+  if (!at || state.exportAbort) {
+    stopPlayback(true);
+    if (state.onPlaybackEnd) { const cb = state.onPlaybackEnd; state.onPlaybackEnd = null; cb(); }
+    return;
+  }
+
+  const { sc, localMs } = at;
+  if (sc.id !== state.currentSceneId) {
+    state.currentSceneId = sc.id;
+    videoEls.forEach((v) => v.pause());
+    videoEls.clear();
+    const media = state.media.find((m) => m.id === sc.mediaId);
+    if (media?.type === "video") {
+      media.el.muted = true;
+      media.el.currentTime = 0;
+      media.el.play().catch(() => {});
+      videoEls.add(media.el);
+    }
+    if (!spokenScenes.has(sc.id) && sc.text.trim()) {
+      spokenScenes.add(sc.id);
+      speakScene(sc);
+    }
+  }
+
+  drawSceneAt(sc, localMs);
+  updatePlaytime(elapsed);
+  rafId = requestAnimationFrame(playbackLoop);
+}
+
+function startPlayback(fromStart = true, onEnd = null) {
+  if (!state.scenes.length) { toast("Rien à lire : générez des scènes d'abord.", true); return; }
+  stopPlayback(true);
+  state.playing = true;
+  state.exportAbort = false;
+  state.onPlaybackEnd = onEnd;
+  state.currentSceneId = null;
+  spokenScenes = new Set();
+  state.playStartTs = performance.now() + 250;
+  $("#btnPlay").textContent = "⏸ Pause";
+  rafId = requestAnimationFrame(playbackLoop);
+}
+
+function stopPlayback(silent = false) {
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+  const wasPlaying = state.playing;
+  state.playing = false;
+  if ("speechSynthesis" in window) synth.cancel();
+  videoEls.forEach((v) => v.pause());
+  videoEls.clear();
+  $("#btnPlay").textContent = "▶ Lecture";
+  if (wasPlaying && !silent) { previewCurrentSceneFrame(); }
+  if (wasPlaying) updatePlaytime(totalDurationMs());
+}
+
+$("#btnPlay").addEventListener("click", () => {
+  if (state.playing) { stopPlayback(); }
+  else startPlayback(true);
+});
+$("#btnStop").addEventListener("click", () => {
+  state.exportAbort = true;
+  stopPlayback();
+  previewCurrentSceneFrame();
+});
+
+/* ---------- Export ---------- */
+
+$("#btnExport").addEventListener("click", exportVideo);
+
+async function pickTabAudio() {
+  if (!navigator.mediaDevices?.getDisplayMedia) return null;
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    audio: { echoCancellation: false, noiseSuppression: false },
+    preferCurrentTab: true,
+  });
+  const track = stream.getAudioTracks()[0];
+  stream.getVideoTracks().forEach((t) => t.stop());
+  return track || null;
+}
+
+async function exportVideo() {
+  if (!state.scenes.length) { toast("Rien à exporter : générez des scènes d'abord.", true); return; }
+  if (typeof MediaRecorder === "undefined") { toast("MediaRecorder non supporté par ce navigateur.", true); return; }
+
+  const mode = $("#audioMode").value;
+  stopPlayback(true);
+
+  let audioTrack = null;
+  let audioCtx = null;
+  let scheduled = [];
+
+  try {
+    if (mode === "tab") {
+      toast("Choisissez « Cet onglet » et cochez « Partager l'audio de l'onglet ».");
+      audioTrack = await pickTabAudio();
+      if (!audioTrack) toast("Aucune piste audio capturée : la vidéo sera muette.", true);
+    } else if (mode === "file" && state.audios.length) {
+      audioCtx = new AudioContext();
+      const dest = audioCtx.createMediaStreamDestination();
+      let offset = 0;
+      for (let i = 0; i < state.scenes.length; i++) {
+        const buf = state.audios[i % state.audios.length]?.buffer;
+        if (!buf) continue;
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.connect(dest);
+        src.start(audioCtx.currentTime + offset / 1000);
+        scheduled.push(src);
+        offset += state.scenes[i].durationMs;
+      }
+      audioTrack = dest.stream.getAudioTracks()[0];
+    }
+  } catch (err) {
+    toast("Capture audio annulée : " + err.message, true);
+    return;
+  }
+
+  const canvasStream = canvas.captureStream(30);
+  const mixed = new MediaStream(canvasStream.getVideoTracks());
+  if (audioTrack) mixed.addTrack(audioTrack);
+
+  const mimeCandidates = [
+    'video/webm;codecs="vp9,opus"',
+    'video/webm;codecs="vp8,opus"',
+    "video/webm",
+  ];
+  const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m));
+  const rec = new MediaRecorder(mixed, mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined);
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+
+  rec.onstop = () => {
+    canvasStream.getVideoTracks().forEach((t) => t.stop());
+    scheduled.forEach((s) => { try { s.stop(); } catch {} });
+    if (audioCtx) audioCtx.close();
+    if (audioTrack) audioTrack.stop();
+    const blob = new Blob(chunks, { type: "video/webm" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `voixoff-studio-${Date.now()}.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast("Export terminé : vidéo WebM téléchargée 🎉");
+  };
+
+  state.exportAbort = false;
+  rec.start(500);
+  toast("Enregistrement en cours… la lecture se fait en temps réel.");
+
+  startPlayback(true, () => {
+    setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, 600);
+  });
+
+  const watch = setInterval(() => {
+    if (!state.playing || state.exportAbort) {
+      clearInterval(watch);
+      if (state.exportAbort && rec.state !== "inactive") rec.stop();
+    }
+  }, 300);
+}
+
+/* ---------- Fichiers audio ---------- */
+
+$("#fileAudio").addEventListener("change", async (e) => {
+  const ac = new AudioContext();
+  for (const file of e.target.files) {
+    try {
+      const buffer = await ac.decodeAudioData(await file.arrayBuffer());
+      state.audios.push({ id: nextId("aud"), name: file.name, buffer });
+    } catch {
+      toast(`Audio illisible : ${file.name}`, true);
+    }
+  }
+  ac.close();
+  e.target.value = "";
+  toast(`${state.audios.length} fichier(s) audio prêt(s) pour l'export.`);
+});
+
+/* ---------- Réglages voix globaux ---------- */
+
+$("#rateRange").addEventListener("input", () => { $("#rateVal").textContent = parseFloat($("#rateRange").value).toFixed(1); });
+$("#pitchRange").addEventListener("input", () => { $("#pitchVal").textContent = parseFloat($("#pitchRange").value).toFixed(1); });
+
+/* ---------- Initialisation ---------- */
+
+window.addEventListener("beforeunload", () => { if ("speechSynthesis" in window) synth.cancel(); });
+document.fonts?.ready.then(() => previewCurrentSceneFrame());
+previewCurrentSceneFrame();
