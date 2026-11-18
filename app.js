@@ -1088,3 +1088,19 @@ $("#pitchRange").addEventListener("input", () => { $("#pitchVal").textContent = 
 window.addEventListener("beforeunload", () => { if ("speechSynthesis" in window) synth.cancel(); });
 document.fonts?.ready.then(() => previewCurrentSceneFrame());
 previewCurrentSceneFrame();
+
+window.addEventListener("error", (e) => {
+  const el = document.getElementById("diag");
+  if (!el) return;
+  el.classList.remove("hidden", "faded");
+  el.classList.add("diag-error");
+  el.textContent = "⚠ Erreur : " + (e.message || "inconnue");
+});
+
+(function selfCheck() {
+  const el = document.getElementById("diag");
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.textContent = `✓ Moteur chargé · canvas ${canvas.width}×${canvas.height}`;
+  setTimeout(() => el.classList.add("faded"), 8000);
+})();
