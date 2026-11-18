@@ -1085,6 +1085,8 @@ $("#pitchRange").addEventListener("input", () => { $("#pitchVal").textContent = 
 
 /* ---------- Initialisation ---------- */
 
+const APP_VERSION = "6";
+
 window.addEventListener("beforeunload", () => { if ("speechSynthesis" in window) synth.cancel(); });
 document.fonts?.ready.then(() => previewCurrentSceneFrame());
 previewCurrentSceneFrame();
@@ -1101,6 +1103,6 @@ window.addEventListener("error", (e) => {
   const el = document.getElementById("diag");
   if (!el) return;
   el.classList.remove("hidden");
-  el.textContent = `✓ Moteur chargé · canvas ${canvas.width}×${canvas.height}`;
+  el.textContent = `✓ Moteur chargé v${APP_VERSION} · canvas ${canvas.width}×${canvas.height}`;
   setTimeout(() => el.classList.add("faded"), 8000);
 })();
