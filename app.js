@@ -239,7 +239,7 @@ const FX_KEYWORDS = {
   sun: ["lever", "coucher", "aube", "aurore", "crépuscule", "crepuscule", "soleil", "sunrise", "sunset", "sun", "horizon"],
   celebration: ["fête", "fete", "anniversaire", "célébration", "celebration", "confettis", "champagne", "réveillon", "reveillon", "noël", "noel", "victoire", "feux d'artifice", "feu d'artifice", "new year", "gala", "couronnement"],
   desert: ["désert", "desert", "dune", "dunes", "sable", "sahara", "oasis", "chameau", "chameaux", "aride", "mirage", "tempête de sable", "tempete de sable"],
-  snow: ["neig", "hiver", "winter", "snow", "froid", "glace", "blizzard", "poudreuse", "tempête de neige"],
+  snow: ["neig", "enneig", "hiver", "winter", "snow", "froid", "glace", "blizzard", "poudreuse", "tempête de neige"],
   ocean: ["mer", "océan", "ocean", "vague", "vagues", "plage", "surf", "eau", "sea", "wave", "beach", "lac", "lake", "île", "ile", "port", "bateau"],
   rain: ["pluie", "orage", "tempête", "tempete", "storm", "rain", "averse", "mousson", "ouragan", "cyclone", "tornade"],
   fire: ["feu", "flamme", "flammes", "volcan", "lave", "fire", "flame", "braise", "braises", "cendre", "incendie", "brasier"],
@@ -307,11 +307,18 @@ const SHOT_TYPES = [
 
 function detectTheme(promptText) {
   const p = (promptText || "").toLowerCase();
-  for (const theme of FX_THEMES) {
-    if ((FX_KEYWORDS[theme] || []).some((k) => p.includes(k))) return theme;
+  for (const [theme, tests] of FX_TESTS) {
+    if (tests.some((re) => re.test(p))) return theme;
   }
   return "abstract";
 }
+
+const FX_TESTS = FX_THEMES.map((theme) => [
+  theme,
+  (FX_KEYWORDS[theme] || []).map(
+    (k) => new RegExp("(^|[^\\p{L}\\p{N}'’-])" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u")
+  ),
+]);
 
 function hashStr(s) {
   let h = 2166136261;
@@ -2045,6 +2052,48 @@ function deleteScene(id) {
 
 /* ---------- Propriétés de scène ---------- */
 
+function applyAnimPrompt(sc, promptText, themeHint) {
+  sc.prompt = promptText;
+  sc.hue = hueFor(sc.prompt || sc.text);
+  sc.fxTheme = detectTheme(sc.prompt || sc.text);
+  sc.fxParts = null;
+  const themeLabel = THEME_LABELS[sc.fxTheme] || sc.fxTheme;
+  if (themeHint) themeHint.textContent = `Thème d'animation : ${themeLabel}${sc.fxTheme === "abstract" ? " (aucun mot-clé reconnu)" : ""}`;
+  renderTimeline();
+  previewCurrentSceneFrame();
+  const extra = sc.fxTheme === "abstract"
+    ? " — aucun mot-clé reconnu. Essayez : soleil, mer, pluie, neige, feu, forêt, montagne, étoiles, ville…"
+    : "";
+  toast(`✓ Animation appliquée — thème : ${themeLabel}${extra}`);
+}
+
+const ANIM_CHIPS = [
+  ["☀️", "un coucher de soleil sur la mer"],
+  ["🌊", "l'océan et ses vagues"],
+  ["🌧️", "une pluie battante sur la ville"],
+  ["❄️", "la neige en hiver"],
+  ["🔥", "un feu de cheminée"],
+  ["🌲", "une forêt pacifique"],
+  ["🌾", "les champs au petit matin"],
+  ["🏔️", "des montagnes majestueuses"],
+  ["🌌", "une nuit étoilée"],
+  ["🌃", "la ville la nuit"],
+  ["🕵️", "une enquête criminelle"],
+  ["📜", "une page d'histoire"],
+  ["🛣️", "la route au crépuscule"],
+  ["🌫️", "un épais brouillard"],
+  ["🍂", "les feuilles d'automne"],
+  ["🌸", "les fleurs du printemps"],
+  ["💻", "la technologie du futur"],
+  ["📈", "l'argent et la croissance"],
+  ["⚽", "le match au stade"],
+  ["❤️", "un amour naissant"],
+  ["🏥", "la santé et l'hôpital"],
+  ["🍽️", "un plat gastronomique"],
+  ["🌵", "un désert aride"],
+  ["🎉", "une grande fête"],
+];
+
 function renderSceneProps() {
   const box = $("#sceneProps");
   box.innerHTML = "";
@@ -2078,17 +2127,53 @@ function renderSceneProps() {
     promptTa.value = sc.prompt || "";
     const themeHint = document.createElement("p");
     themeHint.className = "hint";
-    themeHint.textContent = `Thème détecté : ${THEME_LABELS[sc.fxTheme] || sc.fxTheme}`;
+    themeHint.textContent = `Thème d'animation : ${THEME_LABELS[sc.fxTheme] || sc.fxTheme}${sc.fxTheme === "abstract" ? " (aucun mot-clé reconnu)" : ""}`;
     promptTa.oninput = () => {
       sc.prompt = promptTa.value;
       sc.hue = hueFor(sc.prompt || sc.text);
       sc.fxTheme = detectTheme(sc.prompt || sc.text);
       sc.fxParts = null;
-      themeHint.textContent = `Thème détecté : ${THEME_LABELS[sc.fxTheme] || sc.fxTheme}`;
+      themeHint.textContent = `Thème d'animation : ${THEME_LABELS[sc.fxTheme] || sc.fxTheme}${sc.fxTheme === "abstract" ? " (aucun mot-clé reconnu)" : ""}`;
       previewCurrentSceneFrame();
     };
     promptTa.onblur = () => renderTimeline();
     promptLabel.appendChild(promptTa);
+
+    const chipRow = document.createElement("div");
+    chipRow.className = "chip-row";
+    ANIM_CHIPS.forEach(([emoji, example]) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.textContent = emoji + " " + (THEME_LABELS[detectTheme(example)] || example);
+      chip.title = "Remplit la description avec : " + example;
+      chip.onclick = () => {
+        promptTa.value = example;
+        applyAnimPrompt(sc, example, themeHint);
+      };
+      chipRow.appendChild(chip);
+    });
+    promptGroup.appendChild(chipRow);
+
+    const applyRow = document.createElement("div");
+    applyRow.className = "row";
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "primary";
+    applyBtn.textContent = "✓ Appliquer";
+    applyBtn.title = "Valider la description visuelle de cette scène";
+    applyBtn.onclick = () => applyAnimPrompt(sc, promptTa.value, themeHint);
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.textContent = "↩ Revenir au script";
+    resetBtn.title = "Restaurer la description d'origine (la ligne de script)";
+    resetBtn.onclick = () => {
+      promptTa.value = sc.text;
+      applyAnimPrompt(sc, sc.text, themeHint);
+    };
+    applyRow.appendChild(applyBtn);
+    applyRow.appendChild(resetBtn);
+    promptGroup.appendChild(applyRow);
+    promptGroup.appendChild(themeHint);
     promptGroup.appendChild(promptLabel);
     box.appendChild(promptGroup);
 
@@ -2108,8 +2193,6 @@ function renderSceneProps() {
     };
     shotLabel.appendChild(shotSel);
     box.appendChild(shotLabel);
-
-    box.appendChild(themeHint);
   }
 
   const medium = state.media.find((m) => m.id === sc.mediaId);
@@ -2776,7 +2859,7 @@ $("#pitchRange").addEventListener("input", () => { $("#pitchVal").textContent = 
 
 /* ---------- Initialisation ---------- */
 
-const APP_VERSION = "8";
+const APP_VERSION = "9";
 
 window.addEventListener("beforeunload", () => { if ("speechSynthesis" in window) synth.cancel(); });
 document.fonts?.ready.then(() => previewCurrentSceneFrame());
