@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VoixOff Studio — Montage vidéo & voix off</title>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <header>
@@ -38,11 +38,12 @@ Voici comment notre produit fonctionne.
 Merci d'avoir regardé cette vidéo !"></textarea>
       <label>Illustrations des scènes
         <select id="visualMode">
-          <option value="auto-images">Automatique : images libres par mots-clés</option>
-          <option value="auto-offline">Automatique : dégradés animés (hors-ligne)</option>
+          <option value="anim">Animation par prompt (recommandé)</option>
+          <option value="auto-images">Images libres par mots-clés</option>
           <option value="manual">Manuel : mes médias importés</option>
         </select>
       </label>
+      <p class="hint">Mode « Animation » : chaque scène est animée d'après la description visuelle que vous précisez (par défaut, sa ligne de script). Réglez la description visuelle et le type de plan de chaque scène dans le panneau de droite.</p>
       <div class="row">
         <button id="btnGenerate" class="primary">✨ Générer les scènes</button>
         <button id="btnPreviewVoice" title="Écouter la voix de la scène sélectionnée">🔊 Écouter</button>
@@ -129,6 +130,6 @@ Merci d'avoir regardé cette vidéo !"></textarea>
 <div id="diag" class="diag hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
