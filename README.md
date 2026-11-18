@@ -11,12 +11,11 @@ Application web de montage vidéo avec **génération de voix off à partir d'un
   - *Dégradés animés* : fonds colorés générés localement, sans connexion Internet,
   - *Manuel* : vos médias importés ; si une image automatique ne se charge pas, un dégradé animé prend le relais.
 - **Voix off TTS** : synthèse vocale du navigateur (Web Speech API), voix françaises mises en avant, vitesse et tonalité réglables par scène, préécoute par scène.
+- **Musique de fond** : importez un fichier audio, volume réglable, boucle automatique — mixé à la voix TTS et aux fichiers audio dans la vidéo exportée.
+- **Transitions** entre les scènes : fondu au noir, fondu enchaîné, fondu au blanc, glissement latéral, zoom, ou coupe franche.
 - **Timeline** : réorganisation (↑/↓), duplication, suppression, durée manuelle ou automatique, sous-titres affichés sur la vidéo.
-- **Effets** : Ken Burns (zoom lent) sur les images, fondus entre les scènes.
-- **Export vidéo** WebM (MediaRecorder) en temps réel, avec au choix :
-  - *Capture audio de l'onglet* : enregistre la voix TTS (Chrome/Edge, cocher « Partager l'audio de l'onglet »),
-  - *Fichiers audio importés* : attribués aux scènes dans l'ordre,
-  - *Muet*.
+- **Effets** : Ken Burns (zoom lent) sur les images.
+- **Export vidéo** en temps réel, **MP4 (H.264)** si le navigateur le supporte (Chrome récent, Safari), sinon **WebM** ; audio : capture de l'onglet (voix TTS), fichiers audio importés, ou muet.
 
 ## Lancement
 
@@ -29,12 +28,12 @@ Ouvrir directement `index.html` fonctionne aussi.
 
 ## Navigateurs supportés
 
-Chrome et Edge recommandés (TTS + capture audio d'onglet + MediaRecorder WebM). Firefox : tout fonctionne sauf la capture audio d'onglet (préférer les fichiers audio pour l'export).
+Chrome et Edge recommandés (TTS + capture audio d'onglet + MediaRecorder MP4/WebM). Firefox : tout fonctionne sauf la capture audio d'onglet et l'export MP4 (préférer les fichiers audio pour l'export).
 
 ## Structure
 
 ```
-├── index.html   # Interface (médias/script · aperçu/timeline · réglages/export)
+├── index.html   # Interface (médias/script · aperçu/timeline · musique/transitions/export)
 ├── style.css    # Thème sombre
-└── app.js       # Timeline, rendu canvas, TTS, illustrations auto, export MediaRecorder
+└── app.js       # Timeline, transitions, rendu canvas, TTS, mixage audio, export MediaRecorder
 ```

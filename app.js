@@ -6,12 +6,16 @@
 const state = {
   media: [],        // {id, name, type:'image'|'video', url, el, duration, thumbURL}
   audios: [],       // {id, name, buffer}
-  scenes: [],       // {id, mediaId, text, durationMs, voiceURI, rate, pitch}
+  scenes: [],       // {id, mediaId, text, durationMs, voiceURI, rate, pitch, keywords, hue, imgEl, attribution}
   selectedSceneId: null,
   playing: false,
   playStartTs: 0,
   currentSceneId: null,
   exportAbort: false,
+  music: null,      // {name, buffer}
+  musicVolume: 0.35,
+  musicLoop: true,
+  transition: "fade-black",
 };
 
 let uid = 0;
@@ -291,24 +295,24 @@ async function fetchAutoImage(sc) {
   }
 }
 
-function drawGradientScene(sc, localMs) {
+function drawGradientScene(c, sc, localMs) {
   const progress = Math.min(1, Math.max(0, localMs / Math.max(1, sc.durationMs)));
   const hue = sc.hue || 220;
   const drift = 30 * Math.sin(progress * Math.PI);
-  const g = ctx.createLinearGradient(0, 0, W, H);
+  const g = c.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, `hsl(${hue + drift}, 60%, 24%)`);
   g.addColorStop(1, `hsl(${hue + 60 + drift}, 55%, 11%)`);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
+  c.fillStyle = g;
+  c.fillRect(0, 0, W, H);
 
-  const rg = ctx.createRadialGradient(
+  const rg = c.createRadialGradient(
     W * (0.3 + 0.4 * progress), H * 0.35, 20,
     W * (0.3 + 0.4 * progress), H * 0.35, W * 0.45
   );
   rg.addColorStop(0, `hsla(${hue + 80}, 80%, 65%, 0.35)`);
   rg.addColorStop(1, "hsla(0, 0%, 0%, 0)");
-  ctx.fillStyle = rg;
-  ctx.fillRect(0, 0, W, H);
+  c.fillStyle = rg;
+  c.fillRect(0, 0, W, H);
 }
 
 /* ---------- Timeline ---------- */
@@ -588,20 +592,20 @@ $("#btnPreviewVoice").addEventListener("click", () => {
 
 /* ---------- Rendu canvas ---------- */
 
-function drawCover(el) {
+function drawCover(c, el) {
   const ew = el.videoWidth || el.naturalWidth;
   const eh = el.videoHeight || el.naturalHeight;
   if (!ew || !eh) return;
   const scale = Math.max(W / ew, H / eh);
   const dw = ew * scale, dh = eh * scale;
-  ctx.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  c.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
 }
 
-function drawTextOverlay(text) {
+function drawTextOverlay(c, text) {
   if (!text.trim()) return;
   const fontSize = 34;
-  ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
-  ctx.textAlign = "center";
+  c.font = `600 ${fontSize}px system-ui, sans-serif`;
+  c.textAlign = "center";
 
   const maxW = W - 160;
   const words = text.trim().split(/\s+/);
@@ -609,7 +613,7 @@ function drawTextOverlay(text) {
   let line = "";
   for (const w of words) {
     const test = line ? line + " " + w : w;
-    if (ctx.measureText(test).width > maxW && line) {
+    if (c.measureText(test).width > maxW && line) {
       lines.push(line);
       line = w;
     } else {
@@ -623,35 +627,36 @@ function drawTextOverlay(text) {
   const boxH = shown.length * (fontSize + 8) + pad * 2;
   const y0 = H - boxH - 60;
 
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  c.fillStyle = "rgba(0,0,0,0.55)";
   const boxW = Math.min(
     W - 80,
-    Math.max(...shown.map((l) => ctx.measureText(l).width)) + pad * 2
+    Math.max(...shown.map((l) => c.measureText(l).width)) + pad * 2
   );
-  roundRect((W - boxW) / 2, y0, boxW, boxH, 12);
-  ctx.fill();
+  roundRect(c, (W - boxW) / 2, y0, boxW, boxH, 12);
+  c.fill();
 
-  ctx.fillStyle = "#fff";
+  c.fillStyle = "#fff";
   shown.forEach((l, i) => {
     const y = y0 + pad + fontSize + i * (fontSize + 8) - 6;
-    ctx.fillText(l, W / 2, y);
+    c.fillText(l, W / 2, y);
   });
 }
 
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
   const rr = Math.min(r, w / 2, h / 2);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
+  c.arcTo(x, y + h, x, y, rr);
+  c.arcTo(x, y, x + w, y, rr);
+  c.closePath();
 }
 
-function drawSceneAt(sc, localMs) {
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, W, H);
+function drawSceneAt(sc, localMs, target, withFades = state.transition === "fade-black") {
+  const c = target || ctx;
+  c.fillStyle = "#000";
+  c.fillRect(0, 0, W, H);
 
   const media = state.media.find((m) => m.id === sc.mediaId);
   const progress = Math.min(1, Math.max(0, localMs / sc.durationMs));
@@ -664,29 +669,31 @@ function drawSceneAt(sc, localMs) {
       const eh = el.naturalHeight * zoom;
       const scale = Math.max(W / ew, H / eh);
       const dw = ew * scale, dh = eh * scale;
-      ctx.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      c.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
     } else if (media.el.readyState >= 2) {
-      drawCover(media.el);
+      drawCover(c, media.el);
     }
   } else if (sc.hue !== undefined) {
-    drawGradientScene(sc, localMs);
+    drawGradientScene(c, sc, localMs);
   }
 
-  drawTextOverlay(sc.text);
+  drawTextOverlay(c, sc.text);
 
   if (sc.attribution) {
-    ctx.font = "16px system-ui, sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
-    ctx.fillText(sc.attribution, W - 20, H - 16);
+    c.font = "16px system-ui, sans-serif";
+    c.textAlign = "right";
+    c.fillStyle = "rgba(255, 255, 255, 0.55)";
+    c.fillText(sc.attribution, W - 20, H - 16);
   }
 
-  const fadeIn = Math.min(1, localMs / FADE_MS);
-  const fadeOut = Math.min(1, (sc.durationMs - localMs) / FADE_MS);
-  const alpha = 1 - Math.min(fadeIn, fadeOut);
-  if (alpha > 0) {
-    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
-    ctx.fillRect(0, 0, W, H);
+  if (withFades) {
+    const fadeIn = Math.min(1, localMs / FADE_MS);
+    const fadeOut = Math.min(1, (sc.durationMs - localMs) / FADE_MS);
+    const alpha = 1 - Math.min(fadeIn, fadeOut);
+    if (alpha > 0) {
+      c.fillStyle = `rgba(0,0,0,${alpha})`;
+      c.fillRect(0, 0, W, H);
+    }
   }
 }
 
@@ -703,11 +710,64 @@ function previewCurrentSceneFrame() {
 
 function sceneAtTime(ms) {
   let acc = 0;
-  for (const sc of state.scenes) {
-    if (ms < acc + sc.durationMs) return { sc, localMs: ms - acc };
+  for (let idx = 0; idx < state.scenes.length; idx++) {
+    const sc = state.scenes[idx];
+    if (ms < acc + sc.durationMs) return { sc, localMs: ms - acc, idx };
     acc += sc.durationMs;
   }
   return null;
+}
+
+const TRANS_MS = 600;
+const offA = document.createElement("canvas");
+const offB = document.createElement("canvas");
+offA.width = offB.width = W;
+offA.height = offB.height = H;
+const transCache = { idx: -1 };
+
+function smoothstep(p) {
+  return p * p * (3 - 2 * p);
+}
+
+function drawWithTransition(sc, localMs, idx) {
+  const type = state.transition;
+  if (idx === 0 || localMs >= TRANS_MS || type === "none" || type === "fade-black") {
+    drawSceneAt(sc, localMs);
+    return;
+  }
+  if (type === "fade-white") {
+    drawSceneAt(sc, localMs, ctx, false);
+    ctx.fillStyle = `rgba(255,255,255,${1 - smoothstep(localMs / TRANS_MS)})`;
+    ctx.fillRect(0, 0, W, H);
+    return;
+  }
+  if (transCache.idx !== idx) {
+    const prev = state.scenes[idx - 1];
+    drawSceneAt(prev, Math.max(0, prev.durationMs - FADE_MS), offA.getContext("2d"), false);
+    transCache.idx = idx;
+  }
+  const p = smoothstep(Math.min(1, localMs / TRANS_MS));
+  drawSceneAt(sc, localMs, offB.getContext("2d"), false);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  if (type === "crossfade") {
+    ctx.drawImage(offA, 0, 0);
+    ctx.globalAlpha = p;
+    ctx.drawImage(offB, 0, 0);
+    ctx.globalAlpha = 1;
+  } else if (type === "slide") {
+    ctx.drawImage(offA, -p * W, 0);
+    ctx.drawImage(offB, (1 - p) * W, 0);
+  } else if (type === "zoom") {
+    ctx.drawImage(offA, 0, 0);
+    const s = 1.15 - 0.15 * p;
+    ctx.save();
+    ctx.globalAlpha = p;
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(s, s);
+    ctx.drawImage(offB, -W / 2, -H / 2);
+    ctx.restore();
+  }
 }
 
 let rafId = null;
@@ -746,7 +806,7 @@ function playbackLoop(ts) {
     }
   }
 
-  drawSceneAt(sc, localMs);
+  drawWithTransition(sc, localMs, at.idx);
   updatePlaytime(elapsed);
   rafId = requestAnimationFrame(playbackLoop);
 }
@@ -759,7 +819,9 @@ function startPlayback(fromStart = true, onEnd = null) {
   state.onPlaybackEnd = onEnd;
   state.currentSceneId = null;
   spokenScenes = new Set();
+  transCache.idx = -1;
   state.playStartTs = performance.now() + 250;
+  startMusicPreview();
   $("#btnPlay").textContent = "⏸ Pause";
   rafId = requestAnimationFrame(playbackLoop);
 }
@@ -772,6 +834,7 @@ function stopPlayback(silent = false) {
   if ("speechSynthesis" in window) synth.cancel();
   videoEls.forEach((v) => v.pause());
   videoEls.clear();
+  stopMusicPreview();
   $("#btnPlay").textContent = "▶ Lecture";
   if (wasPlaying && !silent) { previewCurrentSceneFrame(); }
   if (wasPlaying) updatePlaytime(totalDurationMs());
@@ -810,31 +873,55 @@ async function exportVideo() {
   const mode = $("#audioMode").value;
   stopPlayback(true);
 
-  let audioTrack = null;
   let audioCtx = null;
+  let dest = null;
+  let audioTrack = null;
   let scheduled = [];
+  let tabStreamTrack = null;
+
+  const ensureDest = () => {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (!dest) dest = audioCtx.createMediaStreamDestination();
+    return dest;
+  };
 
   try {
     if (mode === "tab") {
       toast("Choisissez « Cet onglet » et cochez « Partager l'audio de l'onglet ».");
-      audioTrack = await pickTabAudio();
-      if (!audioTrack) toast("Aucune piste audio capturée : la vidéo sera muette.", true);
+      tabStreamTrack = await pickTabAudio();
+      if (tabStreamTrack) {
+        audioCtx.createMediaStreamSource(new MediaStream([tabStreamTrack])).connect(ensureDest());
+      } else {
+        toast("Aucune piste audio capturée : vidéo muette (sauf musique de fond).", true);
+      }
     } else if (mode === "file" && state.audios.length) {
-      audioCtx = new AudioContext();
-      const dest = audioCtx.createMediaStreamDestination();
+      const d = ensureDest();
       let offset = 0;
       for (let i = 0; i < state.scenes.length; i++) {
         const buf = state.audios[i % state.audios.length]?.buffer;
         if (!buf) continue;
         const src = audioCtx.createBufferSource();
         src.buffer = buf;
-        src.connect(dest);
+        src.connect(d);
         src.start(audioCtx.currentTime + offset / 1000);
         scheduled.push(src);
         offset += state.scenes[i].durationMs;
       }
-      audioTrack = dest.stream.getAudioTracks()[0];
     }
+
+    if (state.music) {
+      const d = ensureDest();
+      const src = audioCtx.createBufferSource();
+      src.buffer = state.music.buffer;
+      src.loop = state.musicLoop;
+      const gain = audioCtx.createGain();
+      gain.gain.value = state.musicVolume;
+      src.connect(gain).connect(d);
+      src.start(audioCtx.currentTime + 0.25);
+      scheduled.push(src);
+    }
+
+    if (dest) audioTrack = dest.stream.getAudioTracks()[0];
   } catch (err) {
     toast("Capture audio annulée : " + err.message, true);
     return;
@@ -845,11 +932,14 @@ async function exportVideo() {
   if (audioTrack) mixed.addTrack(audioTrack);
 
   const mimeCandidates = [
+    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+    "video/mp4",
     'video/webm;codecs="vp9,opus"',
     'video/webm;codecs="vp8,opus"',
     "video/webm",
   ];
   const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m));
+  const ext = mimeType && mimeType.startsWith("video/mp4") ? "mp4" : "webm";
   const rec = new MediaRecorder(mixed, mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : undefined);
   const chunks = [];
   rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
@@ -857,21 +947,25 @@ async function exportVideo() {
   rec.onstop = () => {
     canvasStream.getVideoTracks().forEach((t) => t.stop());
     scheduled.forEach((s) => { try { s.stop(); } catch {} });
+    if (tabStreamTrack) tabStreamTrack.stop();
     if (audioCtx) audioCtx.close();
-    if (audioTrack) audioTrack.stop();
-    const blob = new Blob(chunks, { type: "video/webm" });
+    const blob = new Blob(chunks, { type: (mimeType || "video/webm").split(";")[0] });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `voixoff-studio-${Date.now()}.webm`;
+    a.download = `voixoff-studio-${Date.now()}.${ext}`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    toast("Export terminé : vidéo WebM téléchargée 🎉");
+    toast(`Export terminé : vidéo ${ext.toUpperCase()} téléchargée 🎉`);
   };
 
   state.exportAbort = false;
   rec.start(500);
-  toast("Enregistrement en cours… la lecture se fait en temps réel.");
+  if (ext === "mp4") {
+    toast("Enregistrement en cours… (format MP4/H.264).");
+  } else {
+    toast("Enregistrement en temps réel… (MP4 non supporté ici : export WebM — convertible en MP4).");
+  }
 
   startPlayback(true, () => {
     setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, 600);
@@ -886,6 +980,59 @@ async function exportVideo() {
 }
 
 /* ---------- Fichiers audio ---------- */
+
+let previewAudio = null;
+
+function startMusicPreview() {
+  if (!state.music) return;
+  try {
+    if (!previewAudio) previewAudio = { ctx: new AudioContext() };
+    previewAudio.ctx.resume();
+    const src = previewAudio.ctx.createBufferSource();
+    src.buffer = state.music.buffer;
+    src.loop = state.musicLoop;
+    const gain = previewAudio.ctx.createGain();
+    gain.gain.value = state.musicVolume;
+    src.connect(gain).connect(previewAudio.ctx.destination);
+    src.start(previewAudio.ctx.currentTime + 0.25);
+    previewAudio.src = src;
+  } catch {}
+}
+
+function stopMusicPreview() {
+  if (previewAudio?.src) {
+    try { previewAudio.src.stop(); } catch {}
+    previewAudio.src = null;
+  }
+}
+
+$("#fileMusic").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const ac = new AudioContext();
+  try {
+    state.music = { name: file.name, buffer: await ac.decodeAudioData(await file.arrayBuffer()) };
+    toast(`Musique « ${file.name} » prête (${fmtTime(state.music.buffer.duration * 1000)}).`);
+  } catch {
+    toast(`Musique illisible : ${file.name}`, true);
+  }
+  ac.close();
+  e.target.value = "";
+});
+
+$("#musicVolume").addEventListener("input", () => {
+  state.musicVolume = parseInt($("#musicVolume").value, 10) / 100;
+  $("#musicVolVal").textContent = $("#musicVolume").value + "%";
+});
+
+$("#musicLoop").addEventListener("change", () => {
+  state.musicLoop = $("#musicLoop").checked;
+});
+
+$("#transitionSelect").addEventListener("change", () => {
+  state.transition = $("#transitionSelect").value;
+  if (!state.playing) previewCurrentSceneFrame();
+});
 
 $("#fileAudio").addEventListener("change", async (e) => {
   const ac = new AudioContext();
