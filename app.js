@@ -230,10 +230,11 @@ function hueFor(text) {
 
 /* ---------- Animation par prompt ---------- */
 
-const FX_THEMES = ["aurora", "underwater", "sun", "celebration", "desert", "snow", "ocean", "rain", "fog", "forest", "field", "mountains", "stars", "city", "noir", "vintage", "road", "autumn", "spring", "tech", "business", "sport", "hearts", "health", "food", "fire", "abstract"];
+const FX_THEMES = ["documentaire", "aurora", "underwater", "sun", "celebration", "desert", "snow", "ocean", "rain", "fog", "forest", "field", "mountains", "stars", "city", "noir", "vintage", "road", "autumn", "spring", "tech", "business", "sport", "hearts", "health", "food", "fire", "abstract"];
 ;
 
 const FX_KEYWORDS = {
+  documentaire: ["documentaire", "reportage", "narration", "savane", "animalier", "animaux", "faune", "flore", "afrique", "kenya", "tanzanie", "serengeti", "steppe", "brousse", "acacia", "archive", "archives", "migration", "migrations", "zèbre", "girafe", "éléphant", "éléphants", "gazelle", "gnu"],
   aurora: ["aurore boréale", "aurore boreale", "aurores", "boréale", "boréales", "boreale", "boreales", "australe", "australes", "polaire", "polaires", "nordiques"],
   underwater: ["sous-marin", "sous-marine", "sous l'eau", "plongée sous", "poisson", "poissons", "corail", "requin", "baleine", "abysse", "profondeurs", "underwater", "aquarium", "algues", "récif", "recif", "méduse", "meduse", "pieuvre", "dauphin"],
   sun: ["lever", "coucher", "aube", "aurore", "crépuscule", "crepuscule", "soleil", "sunrise", "sunset", "sun", "horizon"],
@@ -265,6 +266,7 @@ const FX_KEYWORDS = {
 
 
 const THEME_LABELS = {
+  documentaire: "Documentaire",
   aurora: "Aurores boréales",
   underwater: "Sous l'eau",
   sun: "Coucher / lever de soleil",
@@ -395,6 +397,12 @@ function ensureFx(sc) {
       parts.back = fxSkylineRow(rnd, 90, 200, H * 0.16, H * 0.34);
       parts.front = fxSkylineRow(rnd, 80, 190, H * 0.24, H * 0.44);
       break;
+    case "documentaire":
+      parts.herd = fxRange(6, () => ({ x0: R(0, W), fy: R(0, 1), sp: R(12, 30) * (rnd() > 0.5 ? 1 : -1), s: R(0.7, 1.25), ph: R(0, 6.283) }));
+      parts.birds = fxRange(5, () => ({ x: R(0, W), y: R(H * 0.15, H * 0.4), sp: R(14, 30), ph: R(0, 6.283) }));
+      parts.clouds = [0, 1, 2].map((i) => ({ x: R(0, W), y: H * (0.1 + i * 0.09), s: R(0.8, 1.4), sp: R(5, 11) }));
+      parts.dust = fxRange(26, () => ({ x: R(0, W + 40), fy: R(0, 0.9), sp: R(20, 60), ph: R(0, 6.283), r: R(1, 2.6), a: R(0.08, 0.22) }));
+      break;
     case "aurora":
       parts.ribbons = [0, 1, 2, 3].map((i) => ({ yB: H * (0.22 + i * 0.1), amp: R(40, 90), seg: R(180, 300), ph: R(0, 6.283), hue: [140, 160, 285, 120][i], boost: R(0.7, 1.2) }));
       parts.dots = fxRange(60, () => ({ x: R(0, W), y: R(0, H * 0.75), r: R(0.5, 1.6), ph: R(0, 6.283) }));
@@ -497,6 +505,7 @@ function animateFx(c, sc, localMs) {
     case "mountains": fxMountains(c, sc, t, p, parts, hue); break;
     case "stars": fxStars(c, sc, t, p, parts, hue); break;
     case "city": fxCity(c, sc, t, p, parts, hue); break;
+    case "documentaire": fxDocumentaire(c, sc, t, p, parts, hue); break;
     case "aurora": fxAurora(c, sc, t, p, parts, hue); break;
     case "underwater": fxUnderwater(c, sc, t, p, parts, hue); break;
     case "celebration": fxCelebration(c, sc, t, p, parts, hue); break;
@@ -1865,6 +1874,110 @@ function fxFood(c, sc, t, p, parts, hue) {
   }
 }
 
+function fxDocumentaire(c, sc, t, p, parts, hue) {
+  const g = c.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, `hsl(205, 35%, ${Math.round(55 + 8 * p)}%)`);
+  g.addColorStop(0.55, "hsl(35, 70%, 68%)");
+  g.addColorStop(1, "hsl(20, 55%, 35%)");
+  c.fillStyle = g;
+  c.fillRect(0, 0, W, H);
+
+  const horizon = H * 0.62;
+  const sx = W * 0.55, sy = horizon - 30 - Math.sin(p * Math.PI) * 24;
+  const sg = c.createRadialGradient(sx, sy, 6, sx, sy, 420);
+  sg.addColorStop(0, "hsla(45, 100%, 88%, 0.75)");
+  sg.addColorStop(1, "hsla(45, 95%, 80%, 0)");
+  c.fillStyle = sg;
+  c.fillRect(0, 0, W, H);
+  c.fillStyle = "#ffd98a";
+  c.beginPath();
+  c.arc(sx, sy, 56, 0, Math.PI * 2);
+  c.fill();
+
+  for (const cl of parts.clouds || []) {
+    const cx = ((cl.x + t * cl.sp) % (W + 380)) - 190;
+    c.fillStyle = "hsla(30, 45%, 92%, 0.4)";
+    for (const [dx, dy, r] of [[0, 0, 52], [-64, 12, 38], [66, 10, 42], [12, -20, 36]]) {
+      c.beginPath();
+      c.arc(cx + dx * cl.s, cl.y + dy * cl.s, r * cl.s, 0, Math.PI * 2);
+      c.fill();
+    }
+  }
+
+  const ground = c.createLinearGradient(0, horizon, 0, H);
+  ground.addColorStop(0, "hsl(30, 60%, 45%)");
+  ground.addColorStop(1, "hsl(24, 55%, 22%)");
+  c.fillStyle = ground;
+  c.fillRect(0, horizon, W, H - horizon);
+
+  for (const s of parts.dust || []) {
+    const x = (s.x + t * s.sp) % (W + 40) - 20;
+    const y = horizon + s.fy * (H - horizon) + Math.sin(t + s.ph) * 6;
+    c.fillStyle = `hsla(40, 70%, 85%, ${s.a.toFixed(3)})`;
+    c.beginPath();
+    c.arc(x, y, s.r, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  const gtx = W * 0.68, gy2 = horizon + 34;
+  c.fillStyle = "rgba(20, 12, 6, 0.92)";
+  c.fillRect(gtx - 7, gy2 - 150, 14, 158);
+  c.fillRect(gtx - 7, gy2 - 150, 96, 11);
+  c.fillRect(gtx + 40, gy2 - 176, 11, 37);
+  c.beginPath();
+  c.ellipse(gtx + 44, gy2 - 186, 150, 26, 0, 0, Math.PI * 2);
+  c.fill();
+  c.beginPath();
+  c.ellipse(gtx + 44, gy2 - 168, 108, 18, 0, 0, Math.PI * 2);
+  c.fill();
+
+  for (const a of parts.herd || []) {
+    const x = ((a.x0 + t * a.sp) % (W + 160)) - 80;
+    const y = horizon + 30 + a.fy * 70;
+    const dir = a.sp >= 0 ? 1 : -1;
+    c.fillStyle = "rgba(18, 12, 8, 0.95)";
+    c.beginPath();
+    c.ellipse(x, y, 13 * a.s, 7 * a.s, 0, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    c.arc(x + 12 * dir * a.s, y - 9 * a.s, 4.5 * a.s, 0, Math.PI * 2);
+    c.fill();
+    c.lineWidth = 1.6 * a.s;
+    c.strokeStyle = "rgba(18, 12, 8, 0.95)";
+    for (let k = 0; k < 4; k++) {
+      const lx = x - 8 * a.s + k * 5.5 * a.s;
+      c.beginPath();
+      c.moveTo(lx, y + 5 * a.s);
+      c.lineTo(lx + Math.sin(t * 7 + a.ph + k) * 2.5 * a.s, y + 16 * a.s);
+      c.stroke();
+    }
+  }
+
+  c.strokeStyle = "rgba(20, 14, 10, 0.85)";
+  c.lineWidth = 2;
+  for (const bv of parts.birds || []) {
+    const x = ((bv.x + t * bv.sp) % (W + 140)) - 70;
+    const y = bv.y + Math.sin(t * 0.8 + bv.ph) * 12;
+    const f = Math.sin(t * 6 + bv.ph) * 5;
+    c.beginPath();
+    c.moveTo(x - 8, y - f);
+    c.lineTo(x, y);
+    c.lineTo(x + 8, y - f);
+    c.stroke();
+  }
+
+  c.fillStyle = `rgba(70, 40, 15, ${(0.05 + 0.02 * Math.sin(t * 1.7)).toFixed(3)})`;
+  c.fillRect(0, 0, W, H);
+  c.fillStyle = "rgba(12, 8, 4, 0.85)";
+  c.fillRect(0, 0, W, H * 0.05);
+  c.fillRect(0, H - H * 0.05, W, H * 0.05);
+  const vg = c.createRadialGradient(W / 2, H / 2, H * 0.4, W / 2, H / 2, H * 0.9);
+  vg.addColorStop(0, "hsla(30, 30%, 20%, 0)");
+  vg.addColorStop(1, "hsla(30, 30%, 15%, 0.5)");
+  c.fillStyle = vg;
+  c.fillRect(0, 0, W, H);
+}
+
 const CORS_TIMEOUT_MS = 9000;
 
 function loadCORSImage(url) {
@@ -2068,6 +2181,8 @@ function applyAnimPrompt(sc, promptText, themeHint) {
 }
 
 const ANIM_CHIPS = [
+  ["🦒", "un documentaire animalier dans la savane"],
+  ["🎥", "un documentaire sur la faune sauvage"],
   ["☀️", "un coucher de soleil sur la mer"],
   ["🌊", "l'océan et ses vagues"],
   ["🌧️", "une pluie battante sur la ville"],
@@ -2859,7 +2974,7 @@ $("#pitchRange").addEventListener("input", () => { $("#pitchVal").textContent = 
 
 /* ---------- Initialisation ---------- */
 
-const APP_VERSION = "9";
+const APP_VERSION = "10";
 
 window.addEventListener("beforeunload", () => { if ("speechSynthesis" in window) synth.cancel(); });
 document.fonts?.ready.then(() => previewCurrentSceneFrame());
