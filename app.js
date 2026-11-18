@@ -155,21 +155,160 @@ function generateScenes() {
   const voice = $("#voiceSelect").value || null;
   const rate = parseFloat($("#rateRange").value);
   const pitch = parseFloat($("#pitchRange").value);
+  const visualMode = $("#visualMode").value;
 
-  state.scenes = blocks.map((text, i) => ({
-    id: nextId("scn"),
-    mediaId: state.media.length ? state.media[i % state.media.length].id : null,
-    text,
-    durationMs: estSpeechMs(text, rate),
-    voiceURI: voice,
-    rate,
-    pitch,
-  }));
+  state.scenes = blocks.map((text, i) => {
+    const sc = {
+      id: nextId("scn"),
+      mediaId: null,
+      text,
+      durationMs: estSpeechMs(text, rate),
+      voiceURI: voice,
+      rate,
+      pitch,
+    };
+    if (visualMode === "manual" && state.media.length) {
+      sc.mediaId = state.media[i % state.media.length].id;
+    } else if (visualMode.startsWith("auto")) {
+      sc.keywords = extractKeywords(text);
+      sc.hue = hueFor(sc.keywords.join(" ") || text);
+      if (visualMode === "auto-images") fetchAutoImage(sc);
+    }
+    return sc;
+  });
   state.selectedSceneId = state.scenes[0].id;
   renderMediaList();
   renderTimeline();
   renderSceneProps();
   toast(`${state.scenes.length} scène(s) générée(s) depuis le script.`);
+}
+
+/* ---------- Illustrations automatiques ---------- */
+
+const FR_STOPWORDS = new Set(
+  ("le la les un une des du de d au aux et ou mais donc or ni car que qui quoi dont où " +
+   "je tu il elle on nous vous ils elles me te se lui leur y en ce cet cette ces mon ton son " +
+   "ma ta sa mes tes ses notre vos leurs pour par avec sans sous sur dans devant derrière " +
+   "entre vers chez afin ainsi alors aussi est sont être avoir ai as ont avons avez avait " +
+   "avaient sera seront été suis es sommes êtes plus moins très bien peu tout tous toute " +
+   "toutes quelque certains certaine cela ça ceci celui celle ceux déjà encore ne pas oui " +
+   "non si comme quand parce voici voilà aujourd'hui toujours parfois mais alors puis").split(/\s+/)
+);
+
+function extractKeywords(text, n = 2) {
+  const words = text
+    .toLowerCase()
+    .replace(/^[dlqu]'/gm, "")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !FR_STOPWORDS.has(w));
+  const VERB_END = /(?:ent|ant|ait|aient|er|ez|ons|ions|iez|issons|é|és|ée|ées|ir|rai|rons|drons)$/;
+  const uniq = [...new Set(words)];
+  uniq.sort((a, b) => {
+    const sa = a.length - (VERB_END.test(a) ? 4 : 0);
+    const sb = b.length - (VERB_END.test(b) ? 4 : 0);
+    return sb - sa;
+  });
+  return uniq.slice(0, n);
+}
+
+function hueFor(text) {
+  let h = 0;
+  for (const c of text) h = (h * 31 + c.codePointAt(0)) % 360;
+  return h;
+}
+
+const CORS_TIMEOUT_MS = 9000;
+
+function loadCORSImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    const timer = setTimeout(() => reject(new Error("timeout")), CORS_TIMEOUT_MS);
+    img.onload = () => {
+      clearTimeout(timer);
+      if (img.naturalWidth > 50) resolve(img);
+      else reject(new Error("image trop petite"));
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("chargement impossible"));
+    };
+    img.src = url;
+  });
+}
+
+function searchURL(kind, query, limit) {
+  const q = encodeURIComponent(query);
+  if (kind === "openverse") {
+    return `https://api.openverse.org/v1/images/?q=${q}&page_size=${limit}&license_type=all-cc`;
+  }
+  return `https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*` +
+    `&generator=search&gsrsearch=${encodeURIComponent("filetype:bitmap " + query)}` +
+    `&gsrlimit=${limit}&prop=imageinfo&iiprop=url&iiurlwidth=1280`;
+}
+
+async function openverseResults(query, limit) {
+  const r = await fetch(searchURL("openverse", query, limit), { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error("openverse " + r.status);
+  const data = await r.json();
+  return (data.results || [])
+    .filter((it) => it.thumbnail || it.url)
+    .map((it) => ({
+      url: it.thumbnail || it.url,
+      attribution: it.creator ? `${it.creator} — ${it.license || "CC"}` : "",
+    }));
+}
+
+async function commonsResults(query, limit) {
+  const r = await fetch(searchURL("commons", query, limit));
+  if (!r.ok) throw new Error("commons " + r.status);
+  const data = await r.json();
+  const pages = Object.values(data?.query?.pages || {});
+  return pages
+    .map((p) => p.imageinfo?.[0]?.thumburl)
+    .filter(Boolean)
+    .map((url) => ({ url, attribution: "Wikimedia Commons" }));
+}
+
+async function fetchAutoImage(sc) {
+  const query = sc.keywords.join(" ") || sc.text.slice(0, 40);
+  const sources = [openverseResults, commonsResults];
+  for (const source of sources) {
+    try {
+      const candidates = await source(query, 5);
+      for (const cand of candidates) {
+        try {
+          const img = await loadCORSImage(cand.url);
+          sc.imgEl = img;
+          sc.attribution = cand.attribution;
+          renderTimeline();
+          if (selectedScene() === sc && !state.playing) previewCurrentSceneFrame();
+          return;
+        } catch {}
+      }
+    } catch {}
+  }
+}
+
+function drawGradientScene(sc, localMs) {
+  const progress = Math.min(1, Math.max(0, localMs / Math.max(1, sc.durationMs)));
+  const hue = sc.hue || 220;
+  const drift = 30 * Math.sin(progress * Math.PI);
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, `hsl(${hue + drift}, 60%, 24%)`);
+  g.addColorStop(1, `hsl(${hue + 60 + drift}, 55%, 11%)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const rg = ctx.createRadialGradient(
+    W * (0.3 + 0.4 * progress), H * 0.35, 20,
+    W * (0.3 + 0.4 * progress), H * 0.35, W * 0.45
+  );
+  rg.addColorStop(0, `hsla(${hue + 80}, 80%, 65%, 0.35)`);
+  rg.addColorStop(1, "hsla(0, 0%, 0%, 0)");
+  ctx.fillStyle = rg;
+  ctx.fillRect(0, 0, W, H);
 }
 
 /* ---------- Timeline ---------- */
@@ -192,6 +331,9 @@ function renderTimeline() {
     thumb.className = "thumb";
     if (media) {
       thumb.style.backgroundImage = `url("${media.url}")`;
+    } else if (sc.hue !== undefined) {
+      thumb.style.background = `linear-gradient(135deg, hsl(${sc.hue}, 60%, 32%), hsl(${(sc.hue + 60) % 360}, 55%, 14%))`;
+      if (sc.imgEl) thumb.style.backgroundImage = `url("${sc.imgEl.src}")`;
     } else {
       thumb.textContent = "🎞";
     }
@@ -308,6 +450,15 @@ function renderSceneProps() {
   textGroup.appendChild(selLabel);
   box.appendChild(selLabel);
   void medium;
+
+  if (sc.keywords) {
+    const autoInfo = document.createElement("p");
+    autoInfo.className = "hint";
+    autoInfo.textContent = sc.imgEl
+      ? `Illustration automatique trouvée pour « ${sc.keywords.join(", ")} »`
+      : `Recherche d'illustration pour « ${sc.keywords.join(", ")} »…`;
+    box.appendChild(autoInfo);
+  }
 
   const durLabel = document.createElement("label");
   durLabel.textContent = `Durée : ${fmtTime(sc.durationMs)}`;
@@ -517,9 +668,18 @@ function drawSceneAt(sc, localMs) {
     } else if (media.el.readyState >= 2) {
       drawCover(media.el);
     }
+  } else if (sc.hue !== undefined) {
+    drawGradientScene(sc, localMs);
   }
 
   drawTextOverlay(sc.text);
+
+  if (sc.attribution) {
+    ctx.font = "16px system-ui, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.fillText(sc.attribution, W - 20, H - 16);
+  }
 
   const fadeIn = Math.min(1, localMs / FADE_MS);
   const fadeOut = Math.min(1, (sc.durationMs - localMs) / FADE_MS);
