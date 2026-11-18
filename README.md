@@ -8,7 +8,7 @@ Application web de montage vidéo avec **génération de voix off à partir d'un
 - **Script → scènes** : chaque ligne du script devient une scène de la timeline, avec durée estimée à partir du texte.
 - **Animation par prompt** (mode recommandé) : pour chaque scène, vous précisez dans le panneau de droite :
   - *Passage du script* : le texte lu par la voix off,
-  - *Description visuelle / Prompt de génération* : décrite en français libre (ex. « coucher de soleil sur l'océan, vagues lentes »), le moteur détecte le thème et anime la scène en temps réel — soleil et reflets, océan, pluie, neige, feu, forêt avec lucioles, montagnes en parallaxe, nuit étoilée avec étoiles filantes, ville aux fenêtres qui clignotent, ou abstrait,
+  - *Description visuelle / Prompt de génération* : décrite en français libre (ex. « coucher de soleil sur l'océan, vagues lentes »), le moteur détecte le thème et anime la scène en temps réel — 27 thèmes détectés : aurores boréales, sous l'eau, soleil, fête, désert, neige, océan, pluie, feu, forêt, champs, montagnes, nuit étoilée, ville, film noir, historique sépia, route de nuit, brouillard, automne, printemps, technologie/IA, argent, sport, amour, santé, cuisine, abstrait,
   - *Type de plan* : plan large, plan moyen, gros plan, plongée, contre-plongée, travelling latéral ou zoom avant progressif.
 - **Illustrations automatiques** : l'application analyse le script, en extrait les mots-clés et illustre chaque scène sans touches manuelles :
   - *Images libres par mots-clés* : recherche sur [Openverse](https://openverse.org) puis [Wikimedia Commons](https://commons.wikimedia.org) (licence libre, crédit affiché à l'écran),
