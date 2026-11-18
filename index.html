@@ -84,6 +84,32 @@ Merci d'avoir regardé cette vidéo !"></textarea>
     </section>
 
     <section>
+      <h2>Musique de fond</h2>
+      <label class="file-btn small">+ Importer une musique
+        <input type="file" id="fileMusic" accept="audio/*" hidden>
+      </label>
+      <label>Volume <span id="musicVolVal">35%</span>
+        <input type="range" id="musicVolume" min="0" max="100" step="5" value="35">
+      </label>
+      <label>Boucle automatique
+        <input type="checkbox" id="musicLoop" checked>
+      </label>
+    </section>
+
+    <section>
+      <h2>Transitions</h2>
+      <select id="transitionSelect">
+        <option value="fade-black">Fondu au noir</option>
+        <option value="crossfade">Fondu enchaîné</option>
+        <option value="fade-white">Fondu au blanc</option>
+        <option value="slide">Glissement latéral</option>
+        <option value="zoom">Zoom</option>
+        <option value="none">Aucune (coupe franche)</option>
+      </select>
+      <p class="hint">Transition appliquée entre chaque scène (600 ms). La musique et la voix TTS sont mixées automatiquement à l'export.</p>
+    </section>
+
+    <section>
       <h2>Export</h2>
       <label>Piste audio exportée
         <select id="audioMode">
