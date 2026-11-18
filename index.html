@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoixOff Studio — Montage vidéo & voix off</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🎬 VoixOff Studio</h1>
+  <div class="header-actions">
+    <button id="btnPlay" class="primary">▶ Lecture</button>
+    <button id="btnStop">⏹ Stop</button>
+    <button id="btnExport" class="accent">⬇ Exporter la vidéo</button>
+  </div>
+</header>
+
+<main>
+  <!-- Colonne gauche : médias + script -->
+  <aside class="panel left">
+    <section>
+      <h2>1. Médias</h2>
+      <p class="hint">Images ou clips vidéo pour illustrer votre montage.</p>
+      <label class="file-btn">+ Importer des médias
+        <input type="file" id="fileMedia" accept="image/*,video/*" multiple hidden>
+      </label>
+      <div id="mediaList" class="media-list"></div>
+    </section>
+
+    <section>
+      <h2>2. Script → voix off</h2>
+      <p class="hint">Une ligne (ou un paragraphe) = une scène avec sa voix off.</p>
+      <textarea id="scriptInput" rows="10" placeholder="Exemple :
+
+Bienvenue dans cette présentation.
+Voici comment notre produit fonctionne.
+Merci d'avoir regardé cette vidéo !"></textarea>
+      <div class="row">
+        <button id="btnGenerate" class="primary">✨ Générer les scènes</button>
+        <button id="btnPreviewVoice" title="Écouter la voix de la scène sélectionnée">🔊 Écouter</button>
+      </div>
+    </section>
+  </aside>
+
+  <!-- Colonne centrale : aperçu + timeline -->
+  <section class="center">
+    <div class="canvas-wrap">
+      <canvas id="stage" width="1280" height="720"></canvas>
+      <div id="playTime" class="playtime">00:00 / 00:00</div>
+    </div>
+    <h2>3. Timeline</h2>
+    <div id="timeline" class="timeline"></div>
+  </section>
+
+  <!-- Colonne droite : propriétés + voix + export -->
+  <aside class="panel right">
+    <section>
+      <h2>Voix off</h2>
+      <label>Voix
+        <select id="voiceSelect"></select>
+      </label>
+      <label>Vitesse <span id="rateVal">1.0</span>
+        <input type="range" id="rateRange" min="0.5" max="2" step="0.1" value="1">
+      </label>
+      <label>Tonalité <span id="pitchVal">1.0</span>
+        <input type="range" id="pitchRange" min="0" max="2" step="0.1" value="1">
+      </label>
+      <p class="hint">Ces réglages s'appliquent aux nouvelles scènes ; la scène sélectionnée peut être ajustée ci-dessous.</p>
+    </section>
+
+    <section>
+      <h2>Scène sélectionnée</h2>
+      <div id="sceneProps">
+        <p class="hint">Sélectionnez une scène dans la timeline.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Export</h2>
+      <label>Piste audio exportée
+        <select id="audioMode">
+          <option value="tab">Capture audio de l'onglet (voix TTS)</option>
+          <option value="file">Fichiers audio importés</option>
+          <option value="none">Aucune (vidéo muette)</option>
+        </select>
+      </label>
+      <label class="file-btn small" id="audioFileWrap">+ Importer des fichiers audio
+        <input type="file" id="fileAudio" accept="audio/*" multiple hidden>
+      </label>
+      <p class="hint">Mode « capture de l'onglet » : cochez <b>Partager l'audio de l'onglet</b> dans la fenêtre de partage (Chrome/Edge). La voix TTS est enregistrée en temps réel. Les fichiers audio sont attribués aux scènes dans l'ordre.</p>
+    </section>
+  </aside>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
