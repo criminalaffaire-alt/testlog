@@ -184,6 +184,7 @@ function generateScenes() {
   renderMediaList();
   renderTimeline();
   renderSceneProps();
+  previewCurrentSceneFrame();
   toast(`${state.scenes.length} scène(s) générée(s) depuis le script.`);
 }
 
@@ -700,9 +701,30 @@ function drawSceneAt(sc, localMs, target, withFades = state.transition === "fade
 function previewCurrentSceneFrame() {
   const sc = selectedScene();
   if (state.playing) return;
-  ctx.fillStyle = "#000";
+  if (sc) {
+    drawSceneAt(sc, Math.min(600, sc.durationMs));
+    updatePlaytime(totalDurationMs());
+  } else {
+    drawWelcomeFrame();
+  }
+}
+
+function drawWelcomeFrame() {
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, "hsl(240, 45%, 16%)");
+  g.addColorStop(1, "hsl(280, 40%, 8%)");
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  if (sc) drawSceneAt(sc, Math.min(600, sc.durationMs));
+  ctx.textAlign = "center";
+  ctx.font = "600 44px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.fillText("🎬 VoixOff Studio", W / 2, H / 2 - 30);
+  ctx.font = "600 24px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+  ctx.fillText("1. Collez votre script   2. ✨ Générer les scènes   3. ▶ Lecture", W / 2, H / 2 + 34);
+  ctx.font = "18px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+  ctx.fillText("Chaque ligne du script devient une scène illustrée avec sa voix off.", W / 2, H / 2 + 74);
   updatePlaytime(0);
 }
 
@@ -841,8 +863,15 @@ function stopPlayback(silent = false) {
 }
 
 $("#btnPlay").addEventListener("click", () => {
-  if (state.playing) { stopPlayback(); }
-  else startPlayback(true);
+  if (state.playing) { stopPlayback(); return; }
+  if (!state.scenes.length) {
+    if (!$("#scriptInput").value.trim()) {
+      toast("Écrivez votre script puis cliquez « ✨ Générer les scènes ».", true);
+      return;
+    }
+    generateScenes();
+  }
+  startPlayback(true);
 });
 $("#btnStop").addEventListener("click", () => {
   state.exportAbort = true;
